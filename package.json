@@ -1,7 +1,11 @@
 {
-  "name": "pdf-api",
+  "name": "ultimate-pdf-api",
   "version": "1.0.0",
+  "description": "Complete PDF API with 11 tools",
   "dependencies": {
     "pdf-lib": "^1.17.1"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
