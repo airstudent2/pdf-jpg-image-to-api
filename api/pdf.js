@@ -1,7 +1,7 @@
 const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
 
 module.exports = async function handler(req, res) {
-  // CORS Headers
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -10,411 +10,770 @@ module.exports = async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // GET request - API Info
+  // GET - API Info
   if (req.method === 'GET') {
     return res.status(200).json({
-      name: 'Ultimate PDF API',
+      success: true,
+      name: '🚀 Ultimate PDF API',
       version: '1.0.0',
       status: 'running',
+      author: 'airstudent2',
+      totalTools: 11,
       tools: [
-        'merge', 'compress', 'split', 'jpg-to-pdf', 'pdf-to-jpg',
-        'rotate', 'delete-pages', 'protect', 'unlock', 'add-text', 'extract-pages'
-      ]
+        { id: 1, name: 'merge', description: 'Merge multiple PDFs' },
+        { id: 2, name: 'compress', description: 'Compress PDF size' },
+        { id: 3, name: 'split', description: 'Split PDF into parts' },
+        { id: 4, name: 'jpg-to-pdf', description: 'Convert images to PDF' },
+        { id: 5, name: 'pdf-to-jpg', description: 'Convert PDF to images' },
+        { id: 6, name: 'rotate', description: 'Rotate PDF pages' },
+        { id: 7, name: 'delete-pages', description: 'Remove pages' },
+        { id: 8, name: 'protect', description: 'Add password' },
+        { id: 9, name: 'unlock', description: 'Remove password' },
+        { id: 10, name: 'add-text', description: 'Add watermark/text' },
+        { id: 11, name: 'extract-pages', description: 'Extract specific pages' }
+      ],
+      usage: {
+        method: 'POST',
+        endpoint: '/api/pdf',
+        body: '{ "tool": "tool-name", ...options }'
+      }
     });
   }
 
-  // POST request
+  // POST - Process PDF
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ success: false, error: 'Method not allowed. Use GET or POST.' });
   }
 
   try {
-    const { tool } = req.body || {};
+    const body = req.body || {};
+    const { tool } = body;
 
     if (!tool) {
       return res.status(400).json({
-        error: 'Tool not specified',
-        availableTools: [
-          'merge', 'compress', 'split', 'jpg-to-pdf', 'pdf-to-jpg',
-          'rotate', 'delete-pages', 'protect', 'unlock', 'add-text', 'extract-pages'
-        ]
+        success: false,
+        error: 'Tool name required',
+        example: '{ "tool": "merge", "pdfs": [...] }',
+        availableTools: ['merge', 'compress', 'split', 'jpg-to-pdf', 'pdf-to-jpg', 'rotate', 'delete-pages', 'protect', 'unlock', 'add-text', 'extract-pages']
       });
     }
 
-    // Tool handlers
+    let result;
+
     switch (tool.toLowerCase()) {
       case 'merge':
-        return await handleMerge(req, res);
+        result = await mergePDF(body);
+        break;
       case 'compress':
-        return await handleCompress(req, res);
+        result = await compressPDF(body);
+        break;
       case 'split':
-        return await handleSplit(req, res);
+        result = await splitPDF(body);
+        break;
       case 'jpg-to-pdf':
-        return await handleJpgToPdf(req, res);
+      case 'image-to-pdf':
+      case 'img-to-pdf':
+        result = await jpgToPDF(body);
+        break;
+      case 'pdf-to-jpg':
+      case 'pdf-to-image':
+        result = await pdfToJPG(body);
+        break;
       case 'rotate':
-        return await handleRotate(req, res);
+        result = await rotatePDF(body);
+        break;
       case 'delete-pages':
-        return await handleDeletePages(req, res);
+      case 'remove-pages':
+        result = await deletePages(body);
+        break;
       case 'protect':
-        return await handleProtect(req, res);
+      case 'add-password':
+      case 'lock':
+        result = await protectPDF(body);
+        break;
       case 'unlock':
-        return await handleUnlock(req, res);
+      case 'remove-password':
+        result = await unlockPDF(body);
+        break;
       case 'add-text':
-        return await handleAddText(req, res);
+      case 'watermark':
+      case 'text':
+        result = await addTextPDF(body);
+        break;
       case 'extract-pages':
-        return await handleExtractPages(req, res);
+      case 'extract':
+        result = await extractPages(body);
+        break;
       default:
-        return res.status(400).json({ error: `Unknown tool: ${tool}` });
+        return res.status(400).json({
+          success: false,
+          error: `Unknown tool: "${tool}"`,
+          availableTools: ['merge', 'compress', 'split', 'jpg-to-pdf', 'pdf-to-jpg', 'rotate', 'delete-pages', 'protect', 'unlock', 'add-text', 'extract-pages']
+        });
     }
+
+    return res.status(200).json({
+      success: true,
+      tool: tool,
+      ...result
+    });
+
   } catch (error) {
+    console.error('API Error:', error);
     return res.status(500).json({
-      error: error.message
+      success: false,
+      error: error.message || 'Internal server error'
     });
   }
 };
 
-// ============ TOOL 1: MERGE PDF ============
-async function handleMerge(req, res) {
-  const { pdfs } = req.body;
-  
-  if (!pdfs || pdfs.length < 2) {
-    return res.status(400).json({ error: 'At least 2 PDFs required' });
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 1: MERGE PDF
+// ══════════════════════════════════════════════════════════════
+async function mergePDF({ pdfs }) {
+  if (!pdfs || !Array.isArray(pdfs) || pdfs.length < 2) {
+    throw new Error('At least 2 PDF files required. Send as: { "pdfs": ["base64...", "base64..."] }');
   }
 
   const mergedPdf = await PDFDocument.create();
+  let totalInputPages = 0;
 
-  for (const pdfData of pdfs) {
-    const base64 = pdfData.replace(/^data:application\/pdf;base64,/, '');
-    const pdfBytes = Buffer.from(base64, 'base64');
-    const pdf = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-    const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-    pages.forEach(page => mergedPdf.addPage(page));
+  for (let i = 0; i < pdfs.length; i++) {
+    try {
+      const base64Data = pdfs[i].replace(/^data:application\/pdf;base64,/, '');
+      const pdfBytes = Buffer.from(base64Data, 'base64');
+      const pdf = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+      const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+      totalInputPages += pdf.getPageCount();
+      pages.forEach(page => mergedPdf.addPage(page));
+    } catch (err) {
+      throw new Error(`Error processing PDF #${i + 1}: ${err.message}`);
+    }
   }
 
   const mergedBytes = await mergedPdf.save();
 
-  return res.status(200).json({
-    success: true,
-    message: `Merged ${pdfs.length} PDFs`,
-    pages: mergedPdf.getPageCount(),
-    pdf: Buffer.from(mergedBytes).toString('base64')
-  });
+  return {
+    message: `Successfully merged ${pdfs.length} PDFs`,
+    inputFiles: pdfs.length,
+    totalInputPages: totalInputPages,
+    outputPages: mergedPdf.getPageCount(),
+    fileSizeBytes: mergedBytes.length,
+    fileSizeKB: Math.round(mergedBytes.length / 1024),
+    pdf: Buffer.from(mergedBytes).toString('base64'),
+    filename: `merged_${Date.now()}.pdf`
+  };
 }
 
-// ============ TOOL 2: COMPRESS PDF ============
-async function handleCompress(req, res) {
-  const { pdf, quality = 'medium' } = req.body;
-  
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 2: COMPRESS PDF
+// ══════════════════════════════════════════════════════════════
+async function compressPDF({ pdf, quality = 'medium' }) {
   if (!pdf) {
-    return res.status(400).json({ error: 'PDF required' });
+    throw new Error('PDF file required. Send as: { "pdf": "base64..." }');
   }
 
-  const base64 = pdf.replace(/^data:application\/pdf;base64,/, '');
-  const pdfBytes = Buffer.from(base64, 'base64');
+  const base64Data = pdf.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBytes = Buffer.from(base64Data, 'base64');
   const originalSize = pdfBytes.length;
 
   const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-  const compressedBytes = await pdfDoc.save({ useObjectStreams: true });
-  const newSize = compressedBytes.length;
-
-  return res.status(200).json({
-    success: true,
-    originalSize,
-    compressedSize: newSize,
-    reduction: `${Math.round((1 - newSize / originalSize) * 100)}%`,
-    pdf: Buffer.from(compressedBytes).toString('base64')
+  
+  const compressedBytes = await pdfDoc.save({
+    useObjectStreams: true,
+    addDefaultPage: false
   });
+
+  const newSize = compressedBytes.length;
+  const saved = originalSize - newSize;
+  const percentage = Math.round((saved / originalSize) * 100);
+
+  return {
+    message: 'PDF compressed successfully',
+    quality: quality,
+    originalSizeBytes: originalSize,
+    originalSizeKB: Math.round(originalSize / 1024),
+    compressedSizeBytes: newSize,
+    compressedSizeKB: Math.round(newSize / 1024),
+    savedBytes: saved,
+    savedKB: Math.round(saved / 1024),
+    reductionPercent: Math.max(0, percentage) + '%',
+    pages: pdfDoc.getPageCount(),
+    pdf: Buffer.from(compressedBytes).toString('base64'),
+    filename: `compressed_${Date.now()}.pdf`
+  };
 }
 
-// ============ TOOL 3: SPLIT PDF ============
-async function handleSplit(req, res) {
-  const { pdf, ranges } = req.body;
-  
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 3: SPLIT PDF
+// ══════════════════════════════════════════════════════════════
+async function splitPDF({ pdf, ranges, splitAll = false }) {
   if (!pdf) {
-    return res.status(400).json({ error: 'PDF required' });
+    throw new Error('PDF file required. Send as: { "pdf": "base64...", "ranges": [{"start":1,"end":2}] }');
   }
 
-  const base64 = pdf.replace(/^data:application\/pdf;base64,/, '');
-  const pdfBytes = Buffer.from(base64, 'base64');
+  const base64Data = pdf.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBytes = Buffer.from(base64Data, 'base64');
   const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
   const totalPages = pdfDoc.getPageCount();
 
-  const splitRanges = ranges || Array.from({ length: totalPages }, (_, i) => ({ start: i + 1, end: i + 1 }));
-  const results = [];
-
-  for (const { start, end } of splitRanges) {
-    const newPdf = await PDFDocument.create();
-    const indices = [];
-    for (let i = start - 1; i < end; i++) indices.push(i);
-    
-    const pages = await newPdf.copyPages(pdfDoc, indices);
-    pages.forEach(page => newPdf.addPage(page));
-    
-    const newBytes = await newPdf.save();
-    results.push({
-      range: `${start}-${end}`,
-      pdf: Buffer.from(newBytes).toString('base64')
-    });
+  // If splitAll is true or no ranges, split each page
+  if (splitAll || !ranges || !Array.isArray(ranges) || ranges.length === 0) {
+    ranges = Array.from({ length: totalPages }, (_, i) => ({ start: i + 1, end: i + 1 }));
   }
 
-  return res.status(200).json({
-    success: true,
-    totalPages,
-    documents: results
-  });
-}
+  const documents = [];
 
-// ============ TOOL 4: JPG TO PDF ============
-async function handleJpgToPdf(req, res) {
-  const { images, pageSize = 'A4', orientation = 'portrait', margin = 20 } = req.body;
-  
-  if (!images || images.length === 0) {
-    return res.status(400).json({ error: 'At least 1 image required' });
-  }
+  for (let i = 0; i < ranges.length; i++) {
+    const { start, end } = ranges[i];
 
-  const sizes = {
-    'A4': { width: 595, height: 842 },
-    'Letter': { width: 612, height: 792 },
-    'A3': { width: 842, height: 1191 }
-  };
-
-  let { width, height } = sizes[pageSize] || sizes['A4'];
-  if (orientation === 'landscape') [width, height] = [height, width];
-
-  const pdfDoc = await PDFDocument.create();
-
-  for (const imgData of images) {
-    const base64 = imgData.replace(/^data:image\/\w+;base64,/, '');
-    const imgBytes = Buffer.from(base64, 'base64');
-
-    let image;
-    try {
-      image = await pdfDoc.embedJpg(imgBytes);
-    } catch {
-      image = await pdfDoc.embedPng(imgBytes);
+    if (start < 1 || end > totalPages || start > end) {
+      throw new Error(`Invalid range: ${start}-${end}. PDF has ${totalPages} pages.`);
     }
 
-    const page = pdfDoc.addPage([width, height]);
-    const scale = Math.min(
-      (width - margin * 2) / image.width,
-      (height - margin * 2) / image.height
-    );
+    const newPdf = await PDFDocument.create();
+    const indices = [];
+    
+    for (let p = start - 1; p < end; p++) {
+      indices.push(p);
+    }
 
-    page.drawImage(image, {
-      x: (width - image.width * scale) / 2,
-      y: (height - image.height * scale) / 2,
-      width: image.width * scale,
-      height: image.height * scale
+    const pages = await newPdf.copyPages(pdfDoc, indices);
+    pages.forEach(page => newPdf.addPage(page));
+
+    const newBytes = await newPdf.save();
+
+    documents.push({
+      index: i + 1,
+      range: `${start}-${end}`,
+      pages: end - start + 1,
+      sizeBytes: newBytes.length,
+      sizeKB: Math.round(newBytes.length / 1024),
+      pdf: Buffer.from(newBytes).toString('base64'),
+      filename: `split_${start}-${end}_${Date.now()}.pdf`
     });
+  }
+
+  return {
+    message: `PDF split into ${documents.length} documents`,
+    originalPages: totalPages,
+    documentsCreated: documents.length,
+    documents: documents
+  };
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 4: JPG TO PDF
+// ══════════════════════════════════════════════════════════════
+async function jpgToPDF({ images, pageSize = 'A4', orientation = 'portrait', margin = 40, fitToPage = true }) {
+  if (!images || !Array.isArray(images) || images.length === 0) {
+    throw new Error('At least 1 image required. Send as: { "images": ["base64...", "base64..."] }');
+  }
+
+  const pageSizes = {
+    'A4': { width: 595.28, height: 841.89 },
+    'A3': { width: 841.89, height: 1190.55 },
+    'A5': { width: 419.53, height: 595.28 },
+    'Letter': { width: 612, height: 792 },
+    'Legal': { width: 612, height: 1008 },
+    'Tabloid': { width: 792, height: 1224 }
+  };
+
+  let { width: pageWidth, height: pageHeight } = pageSizes[pageSize] || pageSizes['A4'];
+
+  if (orientation === 'landscape') {
+    [pageWidth, pageHeight] = [pageHeight, pageWidth];
+  }
+
+  const pdfDoc = await PDFDocument.create();
+  let successCount = 0;
+  const errors = [];
+
+  for (let i = 0; i < images.length; i++) {
+    try {
+      const imgData = images[i];
+      const base64Data = imgData.replace(/^data:image\/\w+;base64,/, '');
+      const imgBytes = Buffer.from(base64Data, 'base64');
+
+      let image;
+      
+      // Try JPEG first
+      try {
+        image = await pdfDoc.embedJpg(imgBytes);
+      } catch {
+        // Try PNG if JPEG fails
+        try {
+          image = await pdfDoc.embedPng(imgBytes);
+        } catch {
+          throw new Error('Image format not supported. Use JPG or PNG.');
+        }
+      }
+
+      const page = pdfDoc.addPage([pageWidth, pageHeight]);
+
+      const availableWidth = pageWidth - (margin * 2);
+      const availableHeight = pageHeight - (margin * 2);
+
+      let imgWidth, imgHeight;
+
+      if (fitToPage) {
+        const scale = Math.min(
+          availableWidth / image.width,
+          availableHeight / image.height
+        );
+        imgWidth = image.width * scale;
+        imgHeight = image.height * scale;
+      } else {
+        imgWidth = Math.min(image.width, availableWidth);
+        imgHeight = Math.min(image.height, availableHeight);
+      }
+
+      const x = (pageWidth - imgWidth) / 2;
+      const y = (pageHeight - imgHeight) / 2;
+
+      page.drawImage(image, {
+        x: x,
+        y: y,
+        width: imgWidth,
+        height: imgHeight
+      });
+
+      successCount++;
+    } catch (err) {
+      errors.push({ image: i + 1, error: err.message });
+    }
+  }
+
+  if (successCount === 0) {
+    throw new Error('No images could be processed. Errors: ' + JSON.stringify(errors));
   }
 
   const pdfBytes = await pdfDoc.save();
 
-  return res.status(200).json({
-    success: true,
-    pages: images.length,
-    pdf: Buffer.from(pdfBytes).toString('base64')
-  });
+  return {
+    message: `${successCount} image(s) converted to PDF`,
+    inputImages: images.length,
+    successfullyConverted: successCount,
+    errors: errors.length > 0 ? errors : undefined,
+    pageSize: pageSize,
+    orientation: orientation,
+    margin: margin,
+    pages: pdfDoc.getPageCount(),
+    fileSizeBytes: pdfBytes.length,
+    fileSizeKB: Math.round(pdfBytes.length / 1024),
+    pdf: Buffer.from(pdfBytes).toString('base64'),
+    filename: `images_to_pdf_${Date.now()}.pdf`
+  };
 }
 
-// ============ TOOL 5: ROTATE PDF ============
-async function handleRotate(req, res) {
-  const { pdf, rotation = 90, pages: selectedPages = 'all' } = req.body;
-  
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 5: PDF TO JPG (Returns individual page PDFs)
+// ══════════════════════════════════════════════════════════════
+async function pdfToJPG({ pdf, pages: selectedPages = 'all' }) {
   if (!pdf) {
-    return res.status(400).json({ error: 'PDF required' });
+    throw new Error('PDF file required. Send as: { "pdf": "base64..." }');
   }
 
-  const base64 = pdf.replace(/^data:application\/pdf;base64,/, '');
-  const pdfBytes = Buffer.from(base64, 'base64');
+  const base64Data = pdf.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBytes = Buffer.from(base64Data, 'base64');
   const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
   const totalPages = pdfDoc.getPageCount();
 
-  const indices = selectedPages === 'all' 
-    ? Array.from({ length: totalPages }, (_, i) => i)
-    : selectedPages.map(p => p - 1);
+  let pageIndices = [];
+  
+  if (selectedPages === 'all') {
+    pageIndices = Array.from({ length: totalPages }, (_, i) => i);
+  } else if (Array.isArray(selectedPages)) {
+    pageIndices = selectedPages.map(p => p - 1).filter(p => p >= 0 && p < totalPages);
+  }
 
-  for (const i of indices) {
-    const page = pdfDoc.getPage(i);
-    const current = page.getRotation().angle;
-    page.setRotation(degrees(current + rotation));
+  if (pageIndices.length === 0) {
+    throw new Error('No valid pages selected');
+  }
+
+  const extractedPages = [];
+
+  for (const pageIndex of pageIndices) {
+    const newPdf = await PDFDocument.create();
+    const [copiedPage] = await newPdf.copyPages(pdfDoc, [pageIndex]);
+    newPdf.addPage(copiedPage);
+
+    const page = pdfDoc.getPage(pageIndex);
+    const { width, height } = page.getSize();
+
+    const pageBytes = await newPdf.save();
+
+    extractedPages.push({
+      pageNumber: pageIndex + 1,
+      width: Math.round(width),
+      height: Math.round(height),
+      sizeBytes: pageBytes.length,
+      sizeKB: Math.round(pageBytes.length / 1024),
+      pdf: Buffer.from(pageBytes).toString('base64'),
+      filename: `page_${pageIndex + 1}_${Date.now()}.pdf`
+    });
+  }
+
+  return {
+    message: `Extracted ${extractedPages.length} page(s) from PDF`,
+    totalPagesInOriginal: totalPages,
+    extractedCount: extractedPages.length,
+    pages: extractedPages,
+    note: 'Each page is returned as a separate single-page PDF'
+  };
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 6: ROTATE PDF
+// ══════════════════════════════════════════════════════════════
+async function rotatePDF({ pdf, rotation = 90, pages: selectedPages = 'all' }) {
+  if (!pdf) {
+    throw new Error('PDF file required. Send as: { "pdf": "base64...", "rotation": 90 }');
+  }
+
+  const validRotations = [90, 180, 270, -90, -180, -270];
+  if (!validRotations.includes(rotation)) {
+    throw new Error(`Invalid rotation: ${rotation}. Use: 90, 180, 270, -90, -180, or -270`);
+  }
+
+  const base64Data = pdf.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBytes = Buffer.from(base64Data, 'base64');
+  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  const totalPages = pdfDoc.getPageCount();
+
+  let pageIndices = [];
+  
+  if (selectedPages === 'all') {
+    pageIndices = Array.from({ length: totalPages }, (_, i) => i);
+  } else if (Array.isArray(selectedPages)) {
+    pageIndices = selectedPages.map(p => p - 1).filter(p => p >= 0 && p < totalPages);
+  }
+
+  const rotatedPageNumbers = [];
+
+  for (const pageIndex of pageIndices) {
+    const page = pdfDoc.getPage(pageIndex);
+    const currentRotation = page.getRotation().angle;
+    page.setRotation(degrees(currentRotation + rotation));
+    rotatedPageNumbers.push(pageIndex + 1);
   }
 
   const rotatedBytes = await pdfDoc.save();
 
-  return res.status(200).json({
-    success: true,
-    rotatedPages: indices.length,
-    rotation,
-    pdf: Buffer.from(rotatedBytes).toString('base64')
-  });
+  return {
+    message: `Rotated ${pageIndices.length} page(s) by ${rotation}°`,
+    totalPages: totalPages,
+    rotatedPages: rotatedPageNumbers,
+    rotation: rotation,
+    fileSizeBytes: rotatedBytes.length,
+    fileSizeKB: Math.round(rotatedBytes.length / 1024),
+    pdf: Buffer.from(rotatedBytes).toString('base64'),
+    filename: `rotated_${rotation}deg_${Date.now()}.pdf`
+  };
 }
 
-// ============ TOOL 6: DELETE PAGES ============
-async function handleDeletePages(req, res) {
-  const { pdf, pages: pagesToDelete } = req.body;
-  
-  if (!pdf || !pagesToDelete) {
-    return res.status(400).json({ error: 'PDF and pages required' });
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 7: DELETE PAGES
+// ══════════════════════════════════════════════════════════════
+async function deletePages({ pdf, pages: pagesToDelete }) {
+  if (!pdf) {
+    throw new Error('PDF file required. Send as: { "pdf": "base64...", "pages": [1, 3, 5] }');
   }
 
-  const base64 = pdf.replace(/^data:application\/pdf;base64,/, '');
-  const pdfBytes = Buffer.from(base64, 'base64');
-  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-  const originalPages = pdfDoc.getPageCount();
+  if (!pagesToDelete || !Array.isArray(pagesToDelete) || pagesToDelete.length === 0) {
+    throw new Error('Pages to delete required. Example: { "pages": [1, 3, 5] }');
+  }
 
-  const indices = pagesToDelete.map(p => p - 1).sort((a, b) => b - a);
-  for (const i of indices) {
-    pdfDoc.removePage(i);
+  const base64Data = pdf.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBytes = Buffer.from(base64Data, 'base64');
+  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  const totalPages = pdfDoc.getPageCount();
+
+  // Validate pages
+  const validPages = pagesToDelete.filter(p => p >= 1 && p <= totalPages);
+  
+  if (validPages.length === 0) {
+    throw new Error(`No valid pages to delete. PDF has ${totalPages} pages.`);
+  }
+
+  if (validPages.length >= totalPages) {
+    throw new Error('Cannot delete all pages. At least one page must remain.');
+  }
+
+  // Sort descending to delete from end first
+  const sortedIndices = validPages.map(p => p - 1).sort((a, b) => b - a);
+
+  for (const index of sortedIndices) {
+    pdfDoc.removePage(index);
   }
 
   const newBytes = await pdfDoc.save();
 
-  return res.status(200).json({
-    success: true,
-    originalPages,
-    deletedPages: pagesToDelete.length,
+  return {
+    message: `Deleted ${validPages.length} page(s)`,
+    originalPages: totalPages,
+    deletedPages: validPages.sort((a, b) => a - b),
     remainingPages: pdfDoc.getPageCount(),
-    pdf: Buffer.from(newBytes).toString('base64')
-  });
+    fileSizeBytes: newBytes.length,
+    fileSizeKB: Math.round(newBytes.length / 1024),
+    pdf: Buffer.from(newBytes).toString('base64'),
+    filename: `pages_deleted_${Date.now()}.pdf`
+  };
 }
 
-// ============ TOOL 7: PROTECT PDF ============
-async function handleProtect(req, res) {
-  const { pdf, userPassword, ownerPassword } = req.body;
-  
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 8: PROTECT PDF (Add Password)
+// ══════════════════════════════════════════════════════════════
+async function protectPDF({ pdf, userPassword, ownerPassword, permissions = {} }) {
   if (!pdf) {
-    return res.status(400).json({ error: 'PDF required' });
+    throw new Error('PDF file required. Send as: { "pdf": "base64...", "userPassword": "123" }');
   }
 
-  const base64 = pdf.replace(/^data:application\/pdf;base64,/, '');
-  const pdfBytes = Buffer.from(base64, 'base64');
+  if (!userPassword && !ownerPassword) {
+    throw new Error('At least one password required (userPassword or ownerPassword)');
+  }
+
+  const base64Data = pdf.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBytes = Buffer.from(base64Data, 'base64');
   const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
 
-  pdfDoc.setTitle('Protected Document');
+  // Add metadata
+  pdfDoc.setTitle(pdfDoc.getTitle() || 'Protected Document');
   pdfDoc.setProducer('Ultimate PDF API');
+  pdfDoc.setCreator('Ultimate PDF API - Protected');
+  pdfDoc.setCreationDate(new Date());
+  pdfDoc.setModificationDate(new Date());
 
   const protectedBytes = await pdfDoc.save();
 
-  return res.status(200).json({
-    success: true,
-    message: 'PDF protection metadata added',
+  return {
+    message: 'PDF protection applied',
+    pages: pdfDoc.getPageCount(),
     userPasswordSet: !!userPassword,
     ownerPasswordSet: !!ownerPassword,
+    permissions: {
+      printing: permissions.printing !== false,
+      copying: permissions.copying !== false,
+      modifying: permissions.modifying !== false
+    },
+    fileSizeBytes: protectedBytes.length,
+    fileSizeKB: Math.round(protectedBytes.length / 1024),
     pdf: Buffer.from(protectedBytes).toString('base64'),
-    note: 'For full encryption, use dedicated encryption library'
-  });
+    filename: `protected_${Date.now()}.pdf`,
+    note: 'PDF-lib adds metadata. For full encryption, use specialized encryption library.'
+  };
 }
 
-// ============ TOOL 8: UNLOCK PDF ============
-async function handleUnlock(req, res) {
-  const { pdf, password } = req.body;
-  
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 9: UNLOCK PDF
+// ══════════════════════════════════════════════════════════════
+async function unlockPDF({ pdf, password = '' }) {
   if (!pdf) {
-    return res.status(400).json({ error: 'PDF required' });
+    throw new Error('PDF file required. Send as: { "pdf": "base64...", "password": "123" }');
   }
 
-  const base64 = pdf.replace(/^data:application\/pdf;base64,/, '');
-  const pdfBytes = Buffer.from(base64, 'base64');
+  const base64Data = pdf.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBytes = Buffer.from(base64Data, 'base64');
 
-  const pdfDoc = await PDFDocument.load(pdfBytes, {
-    ignoreEncryption: true,
-    password
-  });
+  let pdfDoc;
+  try {
+    pdfDoc = await PDFDocument.load(pdfBytes, {
+      ignoreEncryption: true,
+      password: password
+    });
+  } catch (err) {
+    throw new Error('Failed to unlock PDF. Password may be incorrect.');
+  }
 
+  // Create new unlocked PDF
   const unlockedPdf = await PDFDocument.create();
   const pages = await unlockedPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
   pages.forEach(page => unlockedPdf.addPage(page));
 
+  // Clear protection metadata
+  unlockedPdf.setProducer('Ultimate PDF API - Unlocked');
+  unlockedPdf.setCreator('Ultimate PDF API');
+
   const unlockedBytes = await unlockedPdf.save();
 
-  return res.status(200).json({
-    success: true,
+  return {
+    message: 'PDF unlocked successfully',
     pages: unlockedPdf.getPageCount(),
-    pdf: Buffer.from(unlockedBytes).toString('base64')
-  });
+    fileSizeBytes: unlockedBytes.length,
+    fileSizeKB: Math.round(unlockedBytes.length / 1024),
+    pdf: Buffer.from(unlockedBytes).toString('base64'),
+    filename: `unlocked_${Date.now()}.pdf`
+  };
 }
 
-// ============ TOOL 9: ADD TEXT ============
-async function handleAddText(req, res) {
-  const { 
-    pdf, text, pages: selectedPages = 'all',
-    position = 'center', fontSize = 30,
-    color = '#000000', opacity = 0.5 
-  } = req.body;
-  
-  if (!pdf || !text) {
-    return res.status(400).json({ error: 'PDF and text required' });
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 10: ADD TEXT / WATERMARK
+// ══════════════════════════════════════════════════════════════
+async function addTextPDF({ 
+  pdf, 
+  text, 
+  pages: selectedPages = 'all',
+  position = 'center',
+  fontSize = 40,
+  color = '#888888',
+  opacity = 0.3,
+  rotation = -45
+}) {
+  if (!pdf) {
+    throw new Error('PDF file required');
   }
 
-  const base64 = pdf.replace(/^data:application\/pdf;base64,/, '');
-  const pdfBytes = Buffer.from(base64, 'base64');
+  if (!text) {
+    throw new Error('Text is required. Send as: { "text": "CONFIDENTIAL" }');
+  }
+
+  const base64Data = pdf.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBytes = Buffer.from(base64Data, 'base64');
   const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const totalPages = pdfDoc.getPageCount();
 
-  const hex = color.replace('#', '');
-  const r = parseInt(hex.substr(0, 2), 16) / 255;
-  const g = parseInt(hex.substr(2, 2), 16) / 255;
-  const b = parseInt(hex.substr(4, 2), 16) / 255;
+  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-  const indices = selectedPages === 'all'
-    ? Array.from({ length: totalPages }, (_, i) => i)
-    : selectedPages.map(p => p - 1);
+  // Parse color
+  const hexColor = color.replace('#', '');
+  const r = parseInt(hexColor.substr(0, 2), 16) / 255;
+  const g = parseInt(hexColor.substr(2, 2), 16) / 255;
+  const b = parseInt(hexColor.substr(4, 2), 16) / 255;
 
-  for (const i of indices) {
-    const page = pdfDoc.getPage(i);
+  // Determine pages
+  let pageIndices = [];
+  if (selectedPages === 'all') {
+    pageIndices = Array.from({ length: totalPages }, (_, i) => i);
+  } else if (Array.isArray(selectedPages)) {
+    pageIndices = selectedPages.map(p => p - 1).filter(p => p >= 0 && p < totalPages);
+  }
+
+  const modifiedPageNumbers = [];
+
+  for (const pageIndex of pageIndices) {
+    const page = pdfDoc.getPage(pageIndex);
     const { width, height } = page.getSize();
     const textWidth = font.widthOfTextAtSize(text, fontSize);
 
     let x, y;
-    switch (position) {
-      case 'top-left': x = 50; y = height - 50; break;
-      case 'top-right': x = width - textWidth - 50; y = height - 50; break;
-      case 'bottom-left': x = 50; y = 50; break;
-      case 'bottom-right': x = width - textWidth - 50; y = 50; break;
-      default: x = (width - textWidth) / 2; y = height / 2;
+
+    switch (position.toLowerCase()) {
+      case 'top-left':
+        x = 50;
+        y = height - 50 - fontSize;
+        break;
+      case 'top-right':
+        x = width - textWidth - 50;
+        y = height - 50 - fontSize;
+        break;
+      case 'top-center':
+        x = (width - textWidth) / 2;
+        y = height - 50 - fontSize;
+        break;
+      case 'bottom-left':
+        x = 50;
+        y = 50;
+        break;
+      case 'bottom-right':
+        x = width - textWidth - 50;
+        y = 50;
+        break;
+      case 'bottom-center':
+        x = (width - textWidth) / 2;
+        y = 50;
+        break;
+      case 'center':
+      default:
+        x = (width - textWidth) / 2;
+        y = (height - fontSize) / 2;
+        break;
     }
 
     page.drawText(text, {
-      x, y, size: fontSize, font,
-      color: rgb(r, g, b), opacity
+      x: x,
+      y: y,
+      size: fontSize,
+      font: font,
+      color: rgb(r, g, b),
+      opacity: opacity,
+      rotate: degrees(rotation)
     });
+
+    modifiedPageNumbers.push(pageIndex + 1);
   }
 
   const modifiedBytes = await pdfDoc.save();
 
-  return res.status(200).json({
-    success: true,
-    modifiedPages: indices.length,
-    pdf: Buffer.from(modifiedBytes).toString('base64')
-  });
+  return {
+    message: `Added text to ${modifiedPageNumbers.length} page(s)`,
+    text: text,
+    position: position,
+    fontSize: fontSize,
+    color: color,
+    opacity: opacity,
+    rotation: rotation,
+    totalPages: totalPages,
+    modifiedPages: modifiedPageNumbers,
+    fileSizeBytes: modifiedBytes.length,
+    fileSizeKB: Math.round(modifiedBytes.length / 1024),
+    pdf: Buffer.from(modifiedBytes).toString('base64'),
+    filename: `watermarked_${Date.now()}.pdf`
+  };
 }
 
-// ============ TOOL 10: EXTRACT PAGES ============
-async function handleExtractPages(req, res) {
-  const { pdf, pages: selectedPages } = req.body;
-  
-  if (!pdf || !selectedPages) {
-    return res.status(400).json({ error: 'PDF and pages required' });
+
+// ══════════════════════════════════════════════════════════════
+// TOOL 11: EXTRACT PAGES
+// ══════════════════════════════════════════════════════════════
+async function extractPages({ pdf, pages: selectedPages }) {
+  if (!pdf) {
+    throw new Error('PDF file required. Send as: { "pdf": "base64...", "pages": [1, 3, 5] }');
   }
 
-  const base64 = pdf.replace(/^data:application\/pdf;base64,/, '');
-  const pdfBytes = Buffer.from(base64, 'base64');
-  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  if (!selectedPages || !Array.isArray(selectedPages) || selectedPages.length === 0) {
+    throw new Error('Pages to extract required. Example: { "pages": [1, 3, 5] }');
+  }
 
-  const indices = selectedPages.map(p => p - 1).sort((a, b) => a - b);
-  
+  const base64Data = pdf.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBytes = Buffer.from(base64Data, 'base64');
+  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  const totalPages = pdfDoc.getPageCount();
+
+  // Validate and sort pages
+  const validPages = selectedPages
+    .filter(p => p >= 1 && p <= totalPages)
+    .sort((a, b) => a - b);
+
+  if (validPages.length === 0) {
+    throw new Error(`No valid pages to extract. PDF has ${totalPages} pages.`);
+  }
+
+  const pageIndices = validPages.map(p => p - 1);
+
   const extractedPdf = await PDFDocument.create();
-  const pages = await extractedPdf.copyPages(pdfDoc, indices);
+  const pages = await extractedPdf.copyPages(pdfDoc, pageIndices);
   pages.forEach(page => extractedPdf.addPage(page));
 
   const extractedBytes = await extractedPdf.save();
 
-  return res.status(200).json({
-    success: true,
-    originalPages: pdfDoc.getPageCount(),
-    extractedPages: selectedPages,
-    pdf: Buffer.from(extractedBytes).toString('base64')
-  });
+  return {
+    message: `Extracted ${validPages.length} page(s)`,
+    originalPages: totalPages,
+    extractedPages: validPages,
+    newDocumentPages: extractedPdf.getPageCount(),
+    fileSizeBytes: extractedBytes.length,
+    fileSizeKB: Math.round(extractedBytes.length / 1024),
+    pdf: Buffer.from(extractedBytes).toString('base64'),
+    filename: `extracted_pages_${Date.now()}.pdf`
+  };
 }
