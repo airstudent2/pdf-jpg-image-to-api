@@ -3,10 +3,7 @@
   "builds": [
     {
       "src": "api/pdf.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxLambdaSize": "50mb"
-      }
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -14,11 +11,5 @@
       "src": "/api/pdf",
       "dest": "/api/pdf.js"
     }
-  ],
-  "functions": {
-    "api/pdf.js": {
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  }
+  ]
 }
