@@ -1,0 +1,14 @@
+{
+  "name": "ultimate-pdf-api",
+  "version": "1.0.0",
+  "description": "All-in-one PDF API with 11 powerful tools",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "sharp": "^0.32.6",
+    "pdf-parse": "^1.1.1"
+  }
+}
